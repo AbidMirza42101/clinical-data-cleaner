@@ -1,5 +1,5 @@
 streamlit
 pandas
 spacy
-en-core-web-sm
+spacy.load("en_core_web_sm")
 openpyxl
