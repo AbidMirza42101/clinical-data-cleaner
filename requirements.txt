@@ -1,2 +1,5 @@
 streamlit
 pandas
+spacy
+en-core-web-sm
+openpyxl
