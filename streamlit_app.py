@@ -1,30 +1,15 @@
 # streamlit_app.py
-# Clinical Note -> Structured Excel/CSV (lite version without full spaCy model)
+# Clinical Note -> Structured Excel/CSV (regex-only version, no spaCy)
 
 import re
 import io
 import pandas as pd
 import streamlit as st
-import spacy
-from spacy.lang.en import English  # lightweight tokenizer (no model)
 
 st.set_page_config(page_title="Clinical Note Structuring Tool", layout="wide")
 
 # ---------------------------
-# Load lightweight spaCy tokenizer
-# ---------------------------
-@st.cache_resource
-def load_lite_spacy():
-    """
-    Load a lightweight spaCy English tokenizer (no model, no NER, no POS tags).
-    This avoids heavy dependencies like blis/thinc that fail on Streamlit Cloud.
-    """
-    return English()
-
-nlp = load_lite_spacy()
-
-# ---------------------------
-# Utility functions (from your original code)
+# Utility functions
 # ---------------------------
 def clean_text_for_excel(text):
     """Remove illegal characters that Excel cannot handle."""
@@ -72,10 +57,6 @@ def extract_structured_data(note_text):
     if re.search(r"afebrile", note_text, re.IGNORECASE):
         structured_data["Temperature Status"] = "Afebrile"
 
-    # --- NLP tokenization only (no entities since no model) ---
-    doc = nlp(note_text)
-    structured_data["Word Count"] = len([t.text for t in doc])
-
     # --- Extract sections ---
     section_pattern = r"\*\*(.*?)\*\*\s*([\s\S]*?)(?=\n\*\*|$)"
     sections = re.findall(section_pattern, note_text)
@@ -91,6 +72,7 @@ def extract_structured_data(note_text):
 
     return structured_data
 
+
 # ---------------------------
 # Streamlit UI
 # ---------------------------
@@ -98,7 +80,7 @@ st.title("Clinical Note Structuring Tool")
 st.markdown(
     """
 Paste an unstructured clinical note and click **Process Note**.
-This will extract structured fields and allow CSV/Excel download.
+This will convert the note into structured fields you can download as CSV/Excel.
 """
 )
 
@@ -157,9 +139,9 @@ if process_btn:
 with st.expander("Example input & tips"):
     st.markdown(
         """
-- Use **bold section headings** like `**History**` to extract sections.
-- The app detects durations like *"for the past 3 days"*.
-- It extracts symptoms such as *cough, fever, congestion*.
-- It detects drug dosages like `Amoxicillin 500 mg`.
+- Use `**History**` style formatting for section extraction.
+- App detects durations: “for the past 3 days”
+- App detects symptoms: cough, fever, congestion, etc.
+- App detects drug dosages like: Amoxicillin 500 mg
 """
     )
