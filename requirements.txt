@@ -1,5 +1,3 @@
 streamlit
 pandas
-spacy==3.5.2
-spacy[cuda-none]
 openpyxl
