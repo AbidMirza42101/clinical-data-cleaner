@@ -1,7 +1,5 @@
 streamlit
 pandas
 spacy==3.5.2
-spacy-model-en_core_web_sm==3.5.0
+spacy[cuda-none]
 openpyxl
-
-
