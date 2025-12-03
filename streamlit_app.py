@@ -72,38 +72,30 @@ def extract_structured_data(note_text):
 
     return structured_data
 
+
 # ---------------------------
-# PHI Detection (Enhanced)
+# Refined PHI Detection
 # ---------------------------
 def contains_phi(text):
     """
     Detect potential PHI in text.
-    Returns True if any possible PHI pattern is found.
+    Flags:
+      - Names after 'Patient:', 'Dr.', 'Mr.', 'Ms.', 'Mrs.'
+      - Numeric identifiers (MRN, phone, SSN)
+    Ignores generic 'patient' mentions.
     """
-    text_lower = text.lower()
-
-    # Keywords and phrases
     patterns = [
-        r"\bname\b", r"\bpatient\b", r"\bmrn\b", r"\bmedical record\b",
-        r"\bdob\b", r"\bdate of birth\b", r"\bphone\b", r"\baddress\b",
-        r"\bssn\b", r"\bsocial security\b", r"\bemail\b"
+        r"(?:Patient|Name|Dr|Mr|Ms|Mrs)\s*[:\-]?\s*[A-Z][a-z]+",  # Names
+        r"\b\d{3}-\d{2}-\d{4}\b",  # SSN
+        r"\b\d{3}-\d{3}-\d{4}\b",  # Phone
+        r"\b\d{8,10}\b"             # MRN / ID numbers
     ]
 
     for pattern in patterns:
-        if re.search(pattern, text_lower):
-            return True
-
-    # Detect numeric patterns (SSN, phone, MRN)
-    sensitive_number_patterns = [
-        r"\b\d{3}-\d{2}-\d{4}\b",  # SSN
-        r"\b\d{3}-\d{3}-\d{4}\b",  # US phone
-        r"\b\d{8,10}\b"             # generic MRN / ID numbers
-    ]
-    for pattern in sensitive_number_patterns:
         if re.search(pattern, text):
             return True
-
     return False
+
 
 # ---------------------------
 # Streamlit UI
@@ -194,6 +186,7 @@ with st.expander("Example input & tips"):
 - App detects durations: “for the past 3 days”
 - App detects symptoms: cough, fever, congestion, etc.
 - App detects drug dosages like: Amoxicillin 500 mg
+- Use **de-identified or fictional patient names** only
 """
     )
 
