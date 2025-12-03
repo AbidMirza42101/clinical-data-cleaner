@@ -1,5 +1,6 @@
 # streamlit_app.py
 # Clinical Note -> Structured Excel/CSV (regex-only version, no spaCy)
+# Updated with refined PHI detection
 
 import re
 import io
@@ -80,19 +81,24 @@ def contains_phi(text):
     """
     Detect potential PHI in text.
     Flags:
-      - Names after 'Patient:', 'Dr.', 'Mr.', 'Ms.', 'Mrs.'
+      - Real names after 'Name:', 'Dr', 'Mr', 'Ms', 'Mrs' 
       - Numeric identifiers (MRN, phone, SSN)
-    Ignores generic 'patient' mentions.
+    Ignores:
+      - Generic mentions of 'patient', 'doctor', '[patient]:', '[doctor]:'
     """
+    # Remove generic labels first
+    cleaned_text = re.sub(r"\[(patient|doctor)\]:", "", text, flags=re.IGNORECASE)
+
+    # Patterns for real PHI
     patterns = [
-        r"(?:Patient|Name|Dr|Mr|Ms|Mrs)\s*[:\-]?\s*[A-Z][a-z]+",  # Names
+        r"\b(Name|Dr|Mr|Ms|Mrs)\s*[:\-]?\s*[A-Z][a-z]+",  # Names
         r"\b\d{3}-\d{2}-\d{4}\b",  # SSN
         r"\b\d{3}-\d{3}-\d{4}\b",  # Phone
         r"\b\d{8,10}\b"             # MRN / ID numbers
     ]
 
     for pattern in patterns:
-        if re.search(pattern, text):
+        if re.search(pattern, cleaned_text):
             return True
     return False
 
@@ -186,7 +192,6 @@ with st.expander("Example input & tips"):
 - App detects durations: “for the past 3 days”
 - App detects symptoms: cough, fever, congestion, etc.
 - App detects drug dosages like: Amoxicillin 500 mg
-- Use **de-identified or fictional patient names** only
 """
     )
 
