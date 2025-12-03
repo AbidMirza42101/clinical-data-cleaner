@@ -72,11 +72,34 @@ def extract_structured_data(note_text):
 
     return structured_data
 
+# ---------------------------
+# PHI Detection (Optional but recommended)
+# ---------------------------
+def contains_phi(text):
+    forbidden = ["name:", "mrn", "dob", "phone", "address", "patient:"]
+    return any(term in text.lower() for term in forbidden)
 
 # ---------------------------
 # Streamlit UI
 # ---------------------------
 st.title("Clinical Note Structuring Tool")
+
+# ---------------------------
+# 🔒 Privacy & Data Handling Notice
+# ---------------------------
+st.markdown(
+    """
+### 🔒 Privacy & Data Handling Notice
+This demo **does not store, save, or transmit** any text you enter.  
+All processing occurs within your **individual Streamlit session**.
+
+🚫 **Do NOT enter any real patient identifiers.**  
+✔️ Only use **de-identified, fictional, or synthetic clinical notes.**
+
+By continuing, you acknowledge that you will provide only de-identified input.
+"""
+)
+
 st.markdown(
     """
 Paste an unstructured clinical note and click **Process Note**.
@@ -98,6 +121,8 @@ if clear_btn:
 if process_btn:
     if not clinical_text.strip():
         st.warning("Please paste a clinical note before processing.")
+    elif contains_phi(clinical_text):
+        st.error("⚠️ PHI detected. Please remove real patient identifiers before proceeding.")
     else:
         with st.spinner("Processing note..."):
             structured_data = extract_structured_data(clinical_text)
@@ -145,3 +170,16 @@ with st.expander("Example input & tips"):
 - App detects drug dosages like: Amoxicillin 500 mg
 """
     )
+
+# ---------------------------
+# ⚠️ Disclaimer (at the very bottom)
+# ---------------------------
+st.markdown(
+    """
+---
+### ⚠️ Disclaimer  
+This tool is for **educational and research demonstration** only.  
+It is **not a medical device** and must not be used for diagnosis, treatment, or clinical decision-making.  
+Users are responsible for ensuring all text entered is **fully de-identified** and contains **no PHI**.
+"""
+)
