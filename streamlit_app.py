@@ -1,6 +1,5 @@
 # streamlit_app.py
 # Clinical Note -> Structured Excel/CSV (regex-only version, no spaCy)
-# Updated with refined PHI detection
 
 import re
 import io
@@ -73,35 +72,39 @@ def extract_structured_data(note_text):
 
     return structured_data
 
-
 # ---------------------------
-# Refined PHI Detection
+# PHI Detection (Enhanced)
 # ---------------------------
 def contains_phi(text):
     """
     Detect potential PHI in text.
     Flags:
-      - Real names after 'Name:', 'Dr', 'Mr', 'Ms', 'Mrs' 
-      - Numeric identifiers (MRN, phone, SSN)
+      - Keywords: name, dob, mrn, address, phone, ssn
+      - Patterns: numeric IDs, SSNs, names with titles (Dr, Mr, Ms)
     Ignores:
-      - Generic mentions of 'patient', 'doctor', '[patient]:', '[doctor]:'
+      - Generic labels like [patient]:, [doctor]:
     """
     # Remove generic labels first
     cleaned_text = re.sub(r"\[(patient|doctor)\]:", "", text, flags=re.IGNORECASE)
 
-    # Patterns for real PHI
+    # Keyword-based PHI
+    keywords = ["name", "dob", "mrn", "address", "phone", "ssn"]
+    for word in keywords:
+        if re.search(rf"\b{word}\b", cleaned_text, re.IGNORECASE):
+            return True
+
+    # Pattern-based PHI
     patterns = [
         r"\b(Name|Dr|Mr|Ms|Mrs)\s*[:\-]?\s*[A-Z][a-z]+",  # Names
         r"\b\d{3}-\d{2}-\d{4}\b",  # SSN
         r"\b\d{3}-\d{3}-\d{4}\b",  # Phone
         r"\b\d{8,10}\b"             # MRN / ID numbers
     ]
-
     for pattern in patterns:
         if re.search(pattern, cleaned_text):
             return True
-    return False
 
+    return False
 
 # ---------------------------
 # Streamlit UI
@@ -118,7 +121,7 @@ This demo **does not store, save, or transmit** any text you enter.
 All processing occurs within your **individual Streamlit session**.
 
 🚫 **Do NOT enter any real patient identifiers.**  
-✔️ Only use **de-identified, fictional, or synthetic clinical notes.**
+✔️ Only use **de-identified, fictional, or synthetic clinical notes**.
 
 By continuing, you acknowledge that you will provide only de-identified input.
 """
