@@ -73,11 +73,37 @@ def extract_structured_data(note_text):
     return structured_data
 
 # ---------------------------
-# PHI Detection (Optional but recommended)
+# PHI Detection (Enhanced)
 # ---------------------------
 def contains_phi(text):
-    forbidden = ["name:", "mrn", "dob", "phone", "address", "patient:"]
-    return any(term in text.lower() for term in forbidden)
+    """
+    Detect potential PHI in text.
+    Returns True if any possible PHI pattern is found.
+    """
+    text_lower = text.lower()
+
+    # Keywords and phrases
+    patterns = [
+        r"\bname\b", r"\bpatient\b", r"\bmrn\b", r"\bmedical record\b",
+        r"\bdob\b", r"\bdate of birth\b", r"\bphone\b", r"\baddress\b",
+        r"\bssn\b", r"\bsocial security\b", r"\bemail\b"
+    ]
+
+    for pattern in patterns:
+        if re.search(pattern, text_lower):
+            return True
+
+    # Detect numeric patterns (SSN, phone, MRN)
+    sensitive_number_patterns = [
+        r"\b\d{3}-\d{2}-\d{4}\b",  # SSN
+        r"\b\d{3}-\d{3}-\d{4}\b",  # US phone
+        r"\b\d{8,10}\b"             # generic MRN / ID numbers
+    ]
+    for pattern in sensitive_number_patterns:
+        if re.search(pattern, text):
+            return True
+
+    return False
 
 # ---------------------------
 # Streamlit UI
