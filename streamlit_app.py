@@ -1,6 +1,6 @@
 # streamlit_app.py
 # Clinical Note -> Structured Excel/CSV (regex-only version, no spaCy)
-# Updated: PHI detection blocks processing completely
+# Updated: Option A PHI detection + highlighting with "PHI DETECTED" in red
 
 import re
 import io
@@ -77,14 +77,24 @@ def extract_structured_data(note_text):
 
 def detect_phi_findings(text):
     """
-    PHI DETECTION ENGINE
+    NEW PHI DETECTION ENGINE
+    - Allows generic clinical titles: patient, doctor, provider, nurse
+    - Flags real PHI using:
+        • explicit labels (Name:, DOB:, Address:, Email:)
+        • pattern-based detection (dates, phone, SSN, MRN)
+        • titled names (Mr Jones, Dr Emily Carter)
     Returns list of: {category, match, start, end}
     """
+
     findings = []
     cleaned = text.lower()
+
+    # Allow generic clinical terms (remove them before matching)
     cleaned = re.sub(r"\b(patient|doctor|provider|dr|nurse|physician)\b", " ", cleaned)
 
-    # 1. Label-based PHI
+    # ---------------------------
+    # 1. Label-based PHI (strong signal)
+    # ---------------------------
     keyword_patterns = [
         ("Name", r"name\s*[:\-]\s*[A-Za-z]"),
         ("DOB", r"dob\s*[:\-]\s*\d"),
@@ -95,6 +105,7 @@ def detect_phi_findings(text):
         ("Address", r"address\s*[:\-]"),
         ("Email", r"email\s*[:\-]"),
     ]
+
     for category, pat in keyword_patterns:
         for m in re.finditer(pat, text, flags=re.IGNORECASE):
             findings.append({
@@ -104,7 +115,9 @@ def detect_phi_findings(text):
                 "end": m.end()
             })
 
+    # ---------------------------
     # 2. Pattern-based PHI
+    # ---------------------------
     patterns = [
         ("SSN", r"\b\d{3}-\d{2}-\d{4}\b"),
         ("Phone", r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b"),
@@ -114,6 +127,7 @@ def detect_phi_findings(text):
         ("Email", r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
         ("Address", r"\d+\s+[A-Za-z]+\s+(street|st|road|rd|avenue|ave|blvd|lane|ln)"),
     ]
+
     for category, pat in patterns:
         for m in re.finditer(pat, text, flags=re.IGNORECASE):
             findings.append({
@@ -123,7 +137,9 @@ def detect_phi_findings(text):
                 "end": m.end()
             })
 
-    # 3. Titled names
+    # ---------------------------
+    # 3. Titled names (Dr Emily Carter, Mr Jones)
+    # ---------------------------
     titled_name_pat = r"\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?"
     for m in re.finditer(titled_name_pat, text):
         findings.append({
@@ -139,25 +155,34 @@ def detect_phi_findings(text):
         key = (f["start"], f["end"])
         if key not in unique:
             unique[key] = f
+
     findings = list(unique.values())
     findings.sort(key=lambda x: x["start"])
     return findings
 
 
 def highlight_text(original_text, findings):
-    """Highlight PHI in red."""
+    """
+    Highlight PHI in the original text:
+    - Keep the original sentence intact
+    - Append "[PHI DETECTED]" in red next to each detected PHI
+    """
     if not findings:
         return html.escape(original_text).replace("\n", "<br>")
 
     out = original_text
+
+    # Sort findings by start descending to avoid messing up indices
     findings_sorted = sorted(findings, key=lambda x: x["start"], reverse=True)
 
     for f in findings_sorted:
         start, end = f["start"], f["end"]
         matched_text = out[start:end]
+        # Replace PHI span with itself + "[PHI DETECTED]" in red
         replacement = f'{matched_text}<span style="color:red; font-weight:bold;"> [PHI DETECTED]</span>'
         out = out[:start] + replacement + out[end:]
 
+    # Escape remaining text and preserve line breaks
     out = html.escape(out).replace("&lt;span", "<span").replace("span&gt;", "span>").replace("\n", "<br>")
     return out
 
@@ -167,14 +192,28 @@ def highlight_text(original_text, findings):
 # ---------------------------
 st.title("Clinical Note Structuring Tool")
 
-st.markdown("""
+# ---------------------------
+# 🔒 Privacy & Data Handling Notice
+# ---------------------------
+st.markdown(
+    """
 ### 🔒 Privacy & Data Handling Notice
 This demo **does not store, save, or transmit** any text you enter.  
-🚫 **Do NOT enter real patient identifiers.**  
-✔️ Only use **de-identified, fictional, or synthetic clinical notes**.
-""")
+All processing occurs within your **individual Streamlit session** hosted by the environment you run it in.
 
-st.markdown("Paste an unstructured clinical note and click **Process Note**.")
+🚫 **Do NOT enter any real patient identifiers.**  
+✔️ Only use **de-identified, fictional, or synthetic clinical notes**.
+
+By continuing, you acknowledge that you will provide only de-identified input.
+"""
+)
+
+st.markdown(
+    """
+Paste an unstructured clinical note and click **Process Note**.
+This will convert the note into structured fields you can download as CSV/Excel.
+"""
+)
 
 clinical_text = st.text_area("Clinical Note", height=360, placeholder="Paste clinical note here...")
 
@@ -187,78 +226,90 @@ with col2:
 if clear_btn:
     st.experimental_rerun()
 
-# Initialize session state
-if "findings" not in st.session_state:
-    st.session_state["findings"] = []
-if "structured_data" not in st.session_state:
-    st.session_state["structured_data"] = None
-
-# ---------------------------
-# Processing logic
-# ---------------------------
 if process_btn:
     if not clinical_text.strip():
         st.warning("Please paste a clinical note before processing.")
     else:
-        # Detect PHI
-        st.session_state["findings"] = detect_phi_findings(clinical_text)
+        # Run PHI detection
+        findings = detect_phi_findings(clinical_text)
 
-        if st.session_state["findings"]:
-            # PHI detected — do NOT process
+        if findings:
             st.error("⚠️ Potential PHI detected. Please remove or de-identify before processing.")
-            highlighted_html = highlight_text(clinical_text, st.session_state["findings"])
+            # Show highlighted view
+            highlighted_html = highlight_text(clinical_text, findings)
             st.markdown("**Detected PHI (highlighted with PHI DETECTED tag):**", unsafe_allow_html=True)
             st.markdown(highlighted_html, unsafe_allow_html=True)
 
-            # PHI summary table
+            # Build a summary table
             summary = {}
-            for f in st.session_state["findings"]:
+            for f in findings:
                 summary[f["category"]] = summary.get(f["category"], 0) + 1
-            df_summary = pd.DataFrame([{"PHI Category": k, "Count": v} for k, v in summary.items()])
+            df_summary = pd.DataFrame(
+                [{"PHI Category": k, "Count": v} for k, v in summary.items()]
+            )
             st.markdown("**PHI Summary:**")
             st.table(df_summary)
 
-            st.info("Edit the note to remove highlighted items, then press **Process Note** again.")
+            st.info("Edit the note to remove the highlighted items, then press **Process Note** again.")
         else:
-            # No PHI detected — extract structured data
+            # No PHI detected — proceed with processing
             with st.spinner("Processing note..."):
-                st.session_state["structured_data"] = extract_structured_data(clinical_text)
+                structured_data = extract_structured_data(clinical_text)
 
-            df = pd.DataFrame([st.session_state["structured_data"]])
-            st.success("Processing complete — preview below.")
-            st.dataframe(df, use_container_width=True)
+            if not structured_data:
+                st.error("No structured data extracted.")
+            else:
+                df = pd.DataFrame([structured_data])
 
-            # CSV download
-            csv_bytes = df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download CSV", data=csv_bytes, file_name="Structured_Clinical_Note.csv", mime="text/csv")
+                st.success("Processing complete — preview below.")
+                st.dataframe(df, use_container_width=True)
 
-            # Excel download
-            try:
-                import openpyxl
-                towrite = io.BytesIO()
-                with pd.ExcelWriter(towrite, engine="openpyxl") as writer:
-                    df.to_excel(writer, index=False, sheet_name="StructuredNote")
-                towrite.seek(0)
-                st.download_button("Download Excel (.xlsx)", data=towrite, file_name="Structured_Clinical_Note.xlsx",
-                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            except Exception:
-                st.info("Excel download not available.")
+                # CSV download
+                csv_bytes = df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="Download CSV",
+                    data=csv_bytes,
+                    file_name="Structured_Clinical_Note.csv",
+                    mime="text/csv",
+                )
 
-# Example & tips
+                # Excel download
+                try:
+                    import openpyxl
+                    towrite = io.BytesIO()
+                    with pd.ExcelWriter(towrite, engine="openpyxl") as writer:
+                        df.to_excel(writer, index=False, sheet_name="StructuredNote")
+                    towrite.seek(0)
+                    st.download_button(
+                        label="Download Excel (.xlsx)",
+                        data=towrite,
+                        file_name="Structured_Clinical_Note.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+                except Exception:
+                    st.info("Excel download not available.")
+
+# Example
 with st.expander("Example input & tips"):
-    st.markdown("""
+    st.markdown(
+        """
 - Use `**History**` style formatting for section extraction.
 - App detects durations: “for the past 3 days”
 - App detects symptoms: cough, fever, congestion, etc.
 - App detects drug dosages like: Amoxicillin 500 mg
 - The app highlights possible PHI (DOB, names, addresses, MRN, phone, email, occupations)
-""")
+"""
+    )
 
-# Disclaimer
-st.markdown("""
+# ---------------------------
+# ⚠️ Disclaimer (at the very bottom)
+# ---------------------------
+st.markdown(
+    """
 ---
 ### ⚠️ Disclaimer  
 This tool is for **educational and research demonstration** only.  
 It is **not a medical device** and must not be used for diagnosis, treatment, or clinical decision-making.  
 Users are responsible for ensuring all text entered is **fully de-identified** and contains **no PHI**.
-""")
+"""
+)
