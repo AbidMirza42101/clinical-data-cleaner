@@ -75,135 +75,90 @@ def extract_structured_data(note_text):
     return structured_data
 
 
-# ---------------------------
-# PHI Detection (Option A) + Highlighting
-# ---------------------------
-PHI_KEYWORDS = {
-    "Name": [
-        r"\bname\b", r"\bfull name\b", r"\blast name\b", r"\bfirst name\b"
-    ],
-    "Address": [
-        r"\baddress\b", r"\bhome address\b", r"\bresidence\b",
-        r"\bstreet\b", r"\bapt\b", r"\bapartment\b", r"\bbox\b", r"\brd\b", r"\bave\b", r"\bavenue\b"
-    ],
-    "Date of Birth": [
-        r"\bdate of birth\b", r"\bbirthdate\b", r"\bdob\b"
-    ],
-    "Phone Number": [
-        r"\bphone\b", r"\bphone number\b", r"\bcontact number\b",
-        r"\bcell\b", r"\bmobile\b", r"\btel\b", r"\btelephone\b"
-    ],
-    "Email": [
-        r"\bemail\b", r"\bemail address\b"
-    ],
-    "SSN": [
-        r"\bssn\b", r"\bsocial security\b"
-    ],
-    "Medical Record Number": [
-        r"\bmrn\b", r"\bmedical record number\b"
-    ],
-    "Insurance": [
-        r"\binsurance\b", r"\bpolicy\b", r"\bmember id\b", r"\bmember number\b"
-    ],
-    "Facility": [
-        r"\bhospital\b", r"\bclinic\b", r"\bmedical center\b", r"\bhealth center\b"
-    ],
-    "Zip Code": [
-        r"\bzip\b", r"\bzipcode\b", r"\bpostal code\b"
-    ]
-}
-
-# Numeric / identifier patterns (also flagged)
-IDENTIFIER_PATTERNS = {
-    "SSN Pattern": r"\b\d{3}-\d{2}-\d{4}\b",
-    "Phone Pattern": r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b",
-    "MRN Pattern": r"\b\d{6,12}\b"  # MRNs vary; adjust as needed
-}
-
-# Excluded generic role words (we remove them from detection only)
-EXCLUDED_WORDS = {"patient", "doctor", "dr", "md", "provider", "nurse", "physician"}
-
-def detect_phi_findings(original_text):
+def detect_phi_findings(text):
     """
-    Returns a list of findings, each as dict:
-      {category, match_text, start, end}
+    NEW PHI DETECTION ENGINE
+    - Allows generic clinical titles: patient, doctor, provider, nurse
+    - Flags real PHI using:
+        • explicit labels (Name:, DOB:, Address:, Email:)
+        • pattern-based detection (dates, phone, SSN, MRN)
+        • titled names (Mr Jones, Dr Emily Carter)
+    Returns list of: {category, match, start, end}
     """
+
     findings = []
-    # Work on a lowercase, but we'll find positions on the original for highlighting
-    # To avoid flagging generic role words, temporarily remove them for matching purposes
-    temp_text = original_text
-    for ex in EXCLUDED_WORDS:
-        # replace whole-word occurrences only (case-insensitive)
-        temp_text = re.sub(rf"\b{re.escape(ex)}\b", " ", temp_text, flags=re.IGNORECASE)
+    cleaned = text.lower()
 
-    # 1) Keyword-based detection
-    for category, patterns in PHI_KEYWORDS.items():
-        for pat in patterns:
-            # finditer on original text (case-insensitive)
-            for m in re.finditer(pat, original_text, flags=re.IGNORECASE):
-                findings.append({
-                    "category": category,
-                    "match": original_text[m.start():m.end()],
-                    "start": m.start(),
-                    "end": m.end()
-                })
+    # Allow generic clinical terms (remove them before matching)
+    cleaned = re.sub(r"\b(patient|doctor|provider|dr|nurse|physician)\b", " ", cleaned)
 
-    # 2) Identifier patterns detection (phone, ssn, mrn)
-    for category, pat in IDENTIFIER_PATTERNS.items():
-        for m in re.finditer(pat, original_text, flags=re.IGNORECASE):
+    # ---------------------------
+    # 1. Label-based PHI (strong signal)
+    # ---------------------------
+    keyword_patterns = [
+        ("Name", r"name\s*[:\-]\s*[A-Za-z]"),
+        ("DOB", r"dob\s*[:\-]\s*\d"),
+        ("DOB", r"date of birth\s*[:\-]"),
+        ("MRN", r"mrn\s*[:\-]\s*\w+"),
+        ("MRN", r"medical record number"),
+        ("SSN", r"ssn\s*[:\-]?\s*\d"),
+        ("Address", r"address\s*[:\-]"),
+        ("Email", r"email\s*[:\-]"),
+    ]
+
+    for category, pat in keyword_patterns:
+        for m in re.finditer(pat, text, flags=re.IGNORECASE):
             findings.append({
                 "category": category,
-                "match": original_text[m.start():m.end()],
+                "match": text[m.start():m.end()],
                 "start": m.start(),
                 "end": m.end()
             })
 
-    # 3) Additional name/title detection (e.g., "Mr. Jones", "Dr Emily Carter")
-    # This helps catch "Mr. Jones", "Dr. Emily Carter", etc.
-    name_title_patterns = [
-        r"\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?",  # Mr. Jones  or Dr Emily Carter
+    # ---------------------------
+    # 2. Pattern-based PHI
+    # ---------------------------
+    patterns = [
+        ("SSN", r"\b\d{3}-\d{2}-\d{4}\b"),
+        ("Phone", r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b"),
+        ("Phone", r"\b\d{10}\b"),
+        ("MRN", r"\b\d{8,9}\b"),
+        ("Date", r"\b\d{1,2}/\d{1,2}/\d{2,4}\b"),
+        ("Email", r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
+        ("Address", r"\d+\s+[A-Za-z]+\s+(street|st|road|rd|avenue|ave|blvd|lane|ln)"),
     ]
-    for pat in name_title_patterns:
-        for m in re.finditer(pat, original_text):
+
+    for category, pat in patterns:
+        for m in re.finditer(pat, text, flags=re.IGNORECASE):
             findings.append({
-                "category": "Title+Name",
-                "match": original_text[m.start():m.end()],
+                "category": category,
+                "match": text[m.start():m.end()],
                 "start": m.start(),
                 "end": m.end()
             })
 
-    # 4) Age patterns (e.g., "52-year-old", "52 year old")
-    for m in re.finditer(r"\b\d{1,3}\s*[- ]?(year|yr|years)\b\s*old\b", original_text, flags=re.IGNORECASE):
+    # ---------------------------
+    # 3. Titled names (Dr Emily Carter, Mr Jones)
+    # ---------------------------
+    titled_name_pat = r"\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?"
+    for m in re.finditer(titled_name_pat, text):
         findings.append({
-            "category": "Age",
-            "match": original_text[m.start():m.end()],
+            "category": "Title+Name",
+            "match": text[m.start():m.end()],
             "start": m.start(),
             "end": m.end()
         })
 
-    # 5) Occupation heuristics (common job words)
-    occupation_terms = ["consultant", "engineer", "teacher", "developer", "driver", "nurse", "lawyer", "physician"]
-    for term in occupation_terms:
-        for m in re.finditer(rf"\b{re.escape(term)}\b", original_text, flags=re.IGNORECASE):
-            findings.append({
-                "category": "Occupation",
-                "match": original_text[m.start():m.end()],
-                "start": m.start(),
-                "end": m.end()
-            })
-
-    # Deduplicate findings by span (if multiple rules matched same span)
+    # Deduplicate by span
     unique = {}
     for f in findings:
         key = (f["start"], f["end"])
-        # If same span exists, prefer the longer category name string (arbitrary)
-        if key not in unique or len(f["category"]) > len(unique[key]["category"]):
+        if key not in unique:
             unique[key] = f
 
-    deduped = list(unique.values())
-    # Sort by start position
-    deduped.sort(key=lambda x: x["start"])
-    return deduped
+    findings = list(unique.values())
+    findings.sort(key=lambda x: x["start"])
+    return findings
 
 
 def highlight_text(original_text, findings):
