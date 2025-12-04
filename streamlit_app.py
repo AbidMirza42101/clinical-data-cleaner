@@ -1,7 +1,6 @@
 # streamlit_app.py
 # Clinical Note -> Structured Excel/CSV (regex-only version, no spaCy)
-# Updated: Option A PHI detection + highlighting with "PHI DETECTED" in red
-# Added Streamlit session_state for persistent PHI detection
+# Updated: PHI detection blocks processing completely
 
 import re
 import io
@@ -77,11 +76,15 @@ def extract_structured_data(note_text):
 
 
 def detect_phi_findings(text):
+    """
+    PHI DETECTION ENGINE
+    Returns list of: {category, match, start, end}
+    """
     findings = []
     cleaned = text.lower()
     cleaned = re.sub(r"\b(patient|doctor|provider|dr|nurse|physician)\b", " ", cleaned)
 
-    # Label-based PHI
+    # 1. Label-based PHI
     keyword_patterns = [
         ("Name", r"name\s*[:\-]\s*[A-Za-z]"),
         ("DOB", r"dob\s*[:\-]\s*\d"),
@@ -94,9 +97,14 @@ def detect_phi_findings(text):
     ]
     for category, pat in keyword_patterns:
         for m in re.finditer(pat, text, flags=re.IGNORECASE):
-            findings.append({"category": category, "match": text[m.start():m.end()], "start": m.start(), "end": m.end()})
+            findings.append({
+                "category": category,
+                "match": text[m.start():m.end()],
+                "start": m.start(),
+                "end": m.end()
+            })
 
-    # Pattern-based PHI
+    # 2. Pattern-based PHI
     patterns = [
         ("SSN", r"\b\d{3}-\d{2}-\d{4}\b"),
         ("Phone", r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b"),
@@ -108,14 +116,24 @@ def detect_phi_findings(text):
     ]
     for category, pat in patterns:
         for m in re.finditer(pat, text, flags=re.IGNORECASE):
-            findings.append({"category": category, "match": text[m.start():m.end()], "start": m.start(), "end": m.end()})
+            findings.append({
+                "category": category,
+                "match": text[m.start():m.end()],
+                "start": m.start(),
+                "end": m.end()
+            })
 
-    # Titled names
+    # 3. Titled names
     titled_name_pat = r"\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?"
     for m in re.finditer(titled_name_pat, text):
-        findings.append({"category": "Title+Name", "match": text[m.start():m.end()], "start": m.start(), "end": m.end()})
+        findings.append({
+            "category": "Title+Name",
+            "match": text[m.start():m.end()],
+            "start": m.start(),
+            "end": m.end()
+        })
 
-    # Deduplicate
+    # Deduplicate by span
     unique = {}
     for f in findings:
         key = (f["start"], f["end"])
@@ -127,16 +145,19 @@ def detect_phi_findings(text):
 
 
 def highlight_text(original_text, findings):
+    """Highlight PHI in red."""
     if not findings:
         return html.escape(original_text).replace("\n", "<br>")
 
     out = original_text
     findings_sorted = sorted(findings, key=lambda x: x["start"], reverse=True)
+
     for f in findings_sorted:
         start, end = f["start"], f["end"]
         matched_text = out[start:end]
         replacement = f'{matched_text}<span style="color:red; font-weight:bold;"> [PHI DETECTED]</span>'
         out = out[:start] + replacement + out[end:]
+
     out = html.escape(out).replace("&lt;span", "<span").replace("span&gt;", "span>").replace("\n", "<br>")
     return out
 
@@ -146,16 +167,12 @@ def highlight_text(original_text, findings):
 # ---------------------------
 st.title("Clinical Note Structuring Tool")
 
-st.markdown(
-    """
+st.markdown("""
 ### 🔒 Privacy & Data Handling Notice
 This demo **does not store, save, or transmit** any text you enter.  
-All processing occurs within your **individual Streamlit session**.
-
-🚫 **Do NOT enter any real patient identifiers.**  
+🚫 **Do NOT enter real patient identifiers.**  
 ✔️ Only use **de-identified, fictional, or synthetic clinical notes**.
-"""
-)
+""")
 
 st.markdown("Paste an unstructured clinical note and click **Process Note**.")
 
@@ -168,91 +185,80 @@ with col2:
     clear_btn = st.button("Clear")
 
 if clear_btn:
-    st.session_state.clear()  # clear all session data
     st.experimental_rerun()
 
-# Initialize session_state keys
+# Initialize session state
 if "findings" not in st.session_state:
     st.session_state["findings"] = []
 if "structured_data" not in st.session_state:
-    st.session_state["structured_data"] = {}
+    st.session_state["structured_data"] = None
 
+# ---------------------------
+# Processing logic
+# ---------------------------
 if process_btn:
     if not clinical_text.strip():
         st.warning("Please paste a clinical note before processing.")
     else:
-        # PHI detection
+        # Detect PHI
         st.session_state["findings"] = detect_phi_findings(clinical_text)
 
         if st.session_state["findings"]:
+            # PHI detected — do NOT process
             st.error("⚠️ Potential PHI detected. Please remove or de-identify before processing.")
             highlighted_html = highlight_text(clinical_text, st.session_state["findings"])
             st.markdown("**Detected PHI (highlighted with PHI DETECTED tag):**", unsafe_allow_html=True)
             st.markdown(highlighted_html, unsafe_allow_html=True)
 
+            # PHI summary table
             summary = {}
             for f in st.session_state["findings"]:
                 summary[f["category"]] = summary.get(f["category"], 0) + 1
             df_summary = pd.DataFrame([{"PHI Category": k, "Count": v} for k, v in summary.items()])
             st.markdown("**PHI Summary:**")
             st.table(df_summary)
+
             st.info("Edit the note to remove highlighted items, then press **Process Note** again.")
         else:
-            # Extract structured data
+            # No PHI detected — extract structured data
             with st.spinner("Processing note..."):
                 st.session_state["structured_data"] = extract_structured_data(clinical_text)
 
-            if not st.session_state["structured_data"]:
-                st.error("No structured data extracted.")
-            else:
-                df = pd.DataFrame([st.session_state["structured_data"]])
-                st.success("Processing complete — preview below.")
-                st.dataframe(df, use_container_width=True)
+            df = pd.DataFrame([st.session_state["structured_data"]])
+            st.success("Processing complete — preview below.")
+            st.dataframe(df, use_container_width=True)
 
-                # CSV download
-                csv_bytes = df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="Download CSV",
-                    data=csv_bytes,
-                    file_name="Structured_Clinical_Note.csv",
-                    mime="text/csv",
-                )
+            # CSV download
+            csv_bytes = df.to_csv(index=False).encode("utf-8")
+            st.download_button("Download CSV", data=csv_bytes, file_name="Structured_Clinical_Note.csv", mime="text/csv")
 
-                # Excel download
-                try:
-                    import openpyxl
-                    towrite = io.BytesIO()
-                    with pd.ExcelWriter(towrite, engine="openpyxl") as writer:
-                        df.to_excel(writer, index=False, sheet_name="StructuredNote")
-                    towrite.seek(0)
-                    st.download_button(
-                        label="Download Excel (.xlsx)",
-                        data=towrite,
-                        file_name="Structured_Clinical_Note.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    )
-                except Exception:
-                    st.info("Excel download not available.")
+            # Excel download
+            try:
+                import openpyxl
+                towrite = io.BytesIO()
+                with pd.ExcelWriter(towrite, engine="openpyxl") as writer:
+                    df.to_excel(writer, index=False, sheet_name="StructuredNote")
+                towrite.seek(0)
+                st.download_button("Download Excel (.xlsx)", data=towrite, file_name="Structured_Clinical_Note.xlsx",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            except Exception:
+                st.info("Excel download not available.")
 
 # Example & tips
 with st.expander("Example input & tips"):
-    st.markdown(
-        """
+    st.markdown("""
 - Use `**History**` style formatting for section extraction.
-- Detects durations: “for the past 3 days”
-- Detects symptoms: cough, fever, congestion, etc.
-- Detects drug dosages like: Amoxicillin 500 mg
-- Highlights possible PHI (DOB, names, addresses, MRN, phone, email)
-"""
-    )
+- App detects durations: “for the past 3 days”
+- App detects symptoms: cough, fever, congestion, etc.
+- App detects drug dosages like: Amoxicillin 500 mg
+- The app highlights possible PHI (DOB, names, addresses, MRN, phone, email, occupations)
+""")
 
 # Disclaimer
-st.markdown(
-    """
+st.markdown("""
 ---
 ### ⚠️ Disclaimer  
 This tool is for **educational and research demonstration** only.  
-It is **not a medical device**.  
-Users must ensure all text entered is **fully de-identified** and contains **no PHI**.
-"""
-)
+It is **not a medical device** and must not be used for diagnosis, treatment, or clinical decision-making.  
+Users are responsible for ensuring all text entered is **fully de-identified** and contains **no PHI**.
+""")
