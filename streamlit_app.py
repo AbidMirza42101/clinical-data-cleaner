@@ -1,6 +1,6 @@
 # streamlit_app.py
 # Clinical Note -> Structured Excel/CSV (regex-only version, no spaCy)
-# Updated: PHI detection + sentence-level highlighting with [PHI DETECTED]
+# Updated: Option A PHI detection + highlighting with "PHI DETECTED" in red
 
 import re
 import io
@@ -77,20 +77,23 @@ def extract_structured_data(note_text):
 
 def detect_phi_findings(text):
     """
-    PHI DETECTION ENGINE
+    NEW PHI DETECTION ENGINE
     - Allows generic clinical titles: patient, doctor, provider, nurse
-    - Flags PHI using labels, patterns, and titled names
+    - Flags real PHI using:
+        • explicit labels (Name:, DOB:, Address:, Email:)
+        • pattern-based detection (dates, phone, SSN, MRN)
+        • titled names (Mr Jones, Dr Emily Carter)
     Returns list of: {category, match, start, end}
     """
 
     findings = []
     cleaned = text.lower()
 
-    # Allow generic clinical terms
+    # Allow generic clinical terms (remove them before matching)
     cleaned = re.sub(r"\b(patient|doctor|provider|dr|nurse|physician)\b", " ", cleaned)
 
     # ---------------------------
-    # 1. Label-based PHI
+    # 1. Label-based PHI (strong signal)
     # ---------------------------
     keyword_patterns = [
         ("Name", r"name\s*[:\-]\s*[A-Za-z]"),
@@ -160,37 +163,27 @@ def detect_phi_findings(text):
 
 def highlight_text(original_text, findings):
     """
-    Highlight the full sentence containing PHI and append [PHI DETECTED] in red.
+    Highlight PHI in the original text:
+    - Keep the original sentence intact
+    - Append "[PHI DETECTED]" in red next to each detected PHI
     """
     if not findings:
         return html.escape(original_text).replace("\n", "<br>")
 
-    # Find sentence boundaries
-    sentence_endings = re.finditer(r'([.!?])', original_text)
-    sentence_boundaries = [0]
-    for m in sentence_endings:
-        sentence_boundaries.append(m.end())
-    sentence_boundaries.append(len(original_text))
+    out = original_text
 
-    # Split text into sentences
-    sentences = []
-    for i in range(len(sentence_boundaries)-1):
-        start = sentence_boundaries[i]
-        end = sentence_boundaries[i+1]
-        sentences.append((start, end, original_text[start:end]))
+    # Sort findings by start descending to avoid messing up indices
+    findings_sorted = sorted(findings, key=lambda x: x["start"], reverse=True)
 
-    # Mark sentences containing PHI
-    phi_spans = [(f['start'], f['end']) for f in findings]
-    highlighted_sentences = []
-    for start, end, sentence in sentences:
-        if any(ps <= end and pe >= start for ps, pe in phi_spans):
-            safe_sentence = html.escape(sentence)
-            highlighted = f'<span style="background:#fff176; padding:2px 3px; border-radius:3px;">{safe_sentence}<span style="color:red; font-weight:bold;"> [PHI DETECTED]</span></span>'
-            highlighted_sentences.append(highlighted)
-        else:
-            highlighted_sentences.append(html.escape(sentence))
+    for f in findings_sorted:
+        start, end = f["start"], f["end"]
+        matched_text = out[start:end]
+        # Replace PHI span with itself + "[PHI DETECTED]" in red
+        replacement = f'{matched_text}<span style="color:red; font-weight:bold;"> [PHI DETECTED]</span>'
+        out = out[:start] + replacement + out[end:]
 
-    out = "<br>".join(highlighted_sentences)
+    # Escape remaining text and preserve line breaks
+    out = html.escape(out).replace("&lt;span", "<span").replace("span&gt;", "span>").replace("\n", "<br>")
     return out
 
 
@@ -199,7 +192,9 @@ def highlight_text(original_text, findings):
 # ---------------------------
 st.title("Clinical Note Structuring Tool")
 
-# 🔒 Privacy Notice
+# ---------------------------
+# 🔒 Privacy & Data Handling Notice
+# ---------------------------
 st.markdown(
     """
 ### 🔒 Privacy & Data Handling Notice
@@ -235,23 +230,29 @@ if process_btn:
     if not clinical_text.strip():
         st.warning("Please paste a clinical note before processing.")
     else:
+        # Run PHI detection
         findings = detect_phi_findings(clinical_text)
 
         if findings:
             st.error("⚠️ Potential PHI detected. Please remove or de-identify before processing.")
+            # Show highlighted view
             highlighted_html = highlight_text(clinical_text, findings)
-            st.markdown("**Detected PHI (highlighted with [PHI DETECTED]):**", unsafe_allow_html=True)
+            st.markdown("**Detected PHI (highlighted with PHI DETECTED tag):**", unsafe_allow_html=True)
             st.markdown(highlighted_html, unsafe_allow_html=True)
 
+            # Build a summary table
             summary = {}
             for f in findings:
                 summary[f["category"]] = summary.get(f["category"], 0) + 1
-            df_summary = pd.DataFrame([{"PHI Category": k, "Count": v} for k, v in summary.items()])
+            df_summary = pd.DataFrame(
+                [{"PHI Category": k, "Count": v} for k, v in summary.items()]
+            )
             st.markdown("**PHI Summary:**")
             st.table(df_summary)
 
             st.info("Edit the note to remove the highlighted items, then press **Process Note** again.")
         else:
+            # No PHI detected — proceed with processing
             with st.spinner("Processing note..."):
                 structured_data = extract_structured_data(clinical_text)
 
@@ -259,6 +260,7 @@ if process_btn:
                 st.error("No structured data extracted.")
             else:
                 df = pd.DataFrame([structured_data])
+
                 st.success("Processing complete — preview below.")
                 st.dataframe(df, use_container_width=True)
 
@@ -287,7 +289,7 @@ if process_btn:
                 except Exception:
                     st.info("Excel download not available.")
 
-# Example & tips
+# Example
 with st.expander("Example input & tips"):
     st.markdown(
         """
@@ -295,11 +297,13 @@ with st.expander("Example input & tips"):
 - App detects durations: “for the past 3 days”
 - App detects symptoms: cough, fever, congestion, etc.
 - App detects drug dosages like: Amoxicillin 500 mg
-- The app highlights possible PHI and shows [PHI DETECTED] for sentences containing PHI.
+- The app highlights possible PHI (DOB, names, addresses, MRN, phone, email, occupations)
 """
     )
 
-# Disclaimer
+# ---------------------------
+# ⚠️ Disclaimer (at the very bottom)
+# ---------------------------
 st.markdown(
     """
 ---
