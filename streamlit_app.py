@@ -1,6 +1,6 @@
 # streamlit_app.py
 # Clinical Note -> Structured Excel/CSV (regex-only version, no spaCy)
-# Updated: Option A PHI detection + highlighting
+# Updated: Option A PHI detection + highlighting with "PHI DETECTED" in red
 
 import re
 import io
@@ -163,23 +163,27 @@ def detect_phi_findings(text):
 
 def highlight_text(original_text, findings):
     """
-    Return HTML with matched spans highlighted (yellow).
-    We insert spans from the end to avoid invalidating indices.
+    Highlight PHI in the original text:
+    - Keep the original sentence intact
+    - Append "[PHI DETECTED]" in red next to each detected PHI
     """
     if not findings:
         return html.escape(original_text).replace("\n", "<br>")
 
-    # Sort findings by start descending to safely replace slices
-    findings_sorted = sorted(findings, key=lambda x: x["start"], reverse=True)
     out = original_text
+
+    # Sort findings by start descending to avoid messing up indices
+    findings_sorted = sorted(findings, key=lambda x: x["start"], reverse=True)
+
     for f in findings_sorted:
         start, end = f["start"], f["end"]
-        matched = html.escape(out[start:end])
-        span = f'<span style="background: #fff176; padding:2px 3px; border-radius:3px;">{matched}</span>'
-        out = out[:start] + span + out[end:]
-    # Escape remaining and preserve line breaks
+        matched_text = out[start:end]
+        # Replace PHI span with itself + "[PHI DETECTED]" in red
+        replacement = f'{matched_text}<span style="color:red; font-weight:bold;"> [PHI DETECTED]</span>'
+        out = out[:start] + replacement + out[end:]
+
+    # Escape remaining text and preserve line breaks
     out = html.escape(out).replace("&lt;span", "<span").replace("span&gt;", "span>").replace("\n", "<br>")
-    # Note: The replacements above restore our injected <span> tags which were escaped by html.escape
     return out
 
 
@@ -233,7 +237,7 @@ if process_btn:
             st.error("⚠️ Potential PHI detected. Please remove or de-identify before processing.")
             # Show highlighted view
             highlighted_html = highlight_text(clinical_text, findings)
-            st.markdown("**Detected PHI (highlighted):**", unsafe_allow_html=True)
+            st.markdown("**Detected PHI (highlighted with PHI DETECTED tag):**", unsafe_allow_html=True)
             st.markdown(highlighted_html, unsafe_allow_html=True)
 
             # Build a summary table
