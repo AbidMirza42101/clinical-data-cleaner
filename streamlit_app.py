@@ -14,22 +14,22 @@ import git  # For cloning private repo if needed
 st.set_page_config(page_title="Clinical Note Structuring Tool", layout="wide")
 
 # ---------------------------
-# 🔑 Optional GitHub Private Repo Access
-# ---------------------------
-try:
-    token = st.secrets["GITHUB_TOKEN"]  # Get token from Streamlit Secrets
-    repo_url = f"https://{token}@github.com/AbidMirza42101/myrepo.git"
-    local_folder = "private_repo"
+# # 🔑 Optional GitHub Private Repo Access
+# # ---------------------------
+# try:
+#     token = st.secrets["GITHUB_TOKEN"]  # Get token from Streamlit Secrets
+#     repo_url = f"https://{token}@github.com/AbidMirza42101/myrepo.git"
+#     local_folder = "private_repo"
 
-    if not os.path.exists(local_folder):
-        git.Repo.clone_from(repo_url, local_folder)
-        st.success(f"Cloned private repo into '{local_folder}'")
-    else:
-        st.info(f"Private repo already exists at '{local_folder}'")
-except KeyError:
-    st.warning("GITHUB_TOKEN not found in Streamlit Secrets. Skipping private repo access.")
-except Exception as e:
-    st.error(f"Error accessing private repo: {e}")
+#     if not os.path.exists(local_folder):
+#         git.Repo.clone_from(repo_url, local_folder)
+#         st.success(f"Cloned private repo into '{local_folder}'")
+#     else:
+#         st.info(f"Private repo already exists at '{local_folder}'")
+# except KeyError:
+#     st.warning("GITHUB_TOKEN not found in Streamlit Secrets. Skipping private repo access.")
+# except Exception as e:
+#     st.error(f"Error accessing private repo: {e}")
 
 # ---------------------------
 # Utility functions
