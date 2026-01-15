@@ -1,6 +1,6 @@
 # Core
 streamlit==1.26.1
-pandas==2.1.1
+pandas>=2.1.2
 openpyxl==3.1.3
 
 # Git access (optional, only if using GitPython for private repo)
